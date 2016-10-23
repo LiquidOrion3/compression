@@ -1,0 +1,38 @@
+import sys
+# restructures tuple to remove values
+def reTree(tree):
+    if type(tree[1]) is str:
+        return tree[1]
+    elif (type(tree[0]) is tuple):
+        return(reTree(tree[0]),reTree(tree[1]))
+    else:
+        return reTree(tree[1])
+
+#translates part of string and returns result and rest of list
+def translate(input,tree):
+    x = int(input[0])
+    if type(tree[x]) is str:
+        return tree[x],input[1:]
+    else:
+        return translate(input[1:],tree[x])
+
+#decodes a string of ints into a string using tree
+def decode(input, tree):
+    result=""
+    while(len(input)>0):
+        x= translate(input, tree)
+        input=x[1]
+        result+=x[0]
+    return result
+
+
+#testing
+h = (7,((3,"A"),(4,"B")))
+i= (13,((5,"C"),h))
+j=(19,((6,"D"),i))
+    
+tree_ = reTree(j)
+input_ = sys.argv[1]
+
+print(decode(input_,tree_))
+
