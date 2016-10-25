@@ -1,38 +1,184 @@
+from array import array
+import os
 import sys
-# restructures tuple to remove values
-def reTree(tree):
-    if type(tree[1]) is str:
-        return tree[1]
-    elif (type(tree[0]) is tuple):
-        return(reTree(tree[0]),reTree(tree[1]))
-    else:
-        return reTree(tree[1])
+from heapq import heappop, heappush
 
-#translates part of string and returns result and rest of list
-def translate(input,tree):
-    x = int(input[0])
-    if type(tree[x]) is str:
-        return tree[x],input[1:]
-    else:
-        return translate(input[1:],tree[x])
+import marshal
 
-#decodes a string of ints into a string using tree
-def decode(input, tree):
-    result=""
-    while(len(input)>0):
-        x= translate(input, tree)
-        input=x[1]
-        result+=x[0]
-    return result
+try:
+    import cPickle as pickle
+except:
+    import pickle
 
+# Used for encoding/compressing
+# Encoded dict is used for fast lookup by decode/decompression
+encodedDict = {}
+# Letter dict is used to encode/compress. Is not written to file
+letterDict = {}
 
-#testing
-h = (7,((3,"A"),(4,"B")))
-i= (13,((5,"C"),h))
-j=(19,((6,"D"),i))
+def code(msg):
+    # Pass the message, return priority queue
+    freqDict = {}
+    for i in range(len(msg)):
+        if msg[i] in freqDict:
+            freqDict[msg[i]] += 1
+        else:
+            freqDict[msg[i]] = 1
+
+    pQueue = []
+    for letter,freq in freqDict.iteritems():
+        heappush(pQueue, (freq, letter))
+
+    # Loop over pQueue to create "Huffman tree"
+    while len(pQueue) > 1:
+        low1 = heappop(pQueue)
+        low2 = heappop(pQueue)
+        
+        sum = low1[0] + low2[0]
+        heappush(pQueue,(sum,(low1,low2)))
+
+    # Unpack heap
+    unpack_huffman_list(pQueue[0][1])
+
+    # Encode the message using letterDict
+    encoded = ""
+    for ch in msg:
+        encoded = encoded + letterDict[ch]
+
+    return encoded,encodedDict
     
-tree_ = reTree(j)
-input_ = sys.argv[1]
 
-print(decode(input_,tree_))
+def decode(str, decoderRing):
+    lastIndexUsed = 0
+    i = 1
+    message = ""
+    while i <= len(str):
+        try:
+            keyAttempt = str[lastIndexUsed:i]
+            message = message + decoderRing[keyAttempt]
+            lastIndexUsed = i
+        except KeyError:
+            pass
+        finally:
+            i += 1
 
+    return message
+
+
+
+def compress(msg):
+    encoded, encodedDict = code(msg)
+
+    bitstream = array('B')
+    buf = 0
+    count = 0
+    for bit in encoded:
+        if bit == '0':
+            buf = (buf << 1)
+        else:
+            buf = (buf << 1) | 1
+        count += 1
+        if count is 8:
+            bitstream.append(buf)
+            buf = 0
+            count = 0
+    
+    return bitstream, encodedDict
+    
+
+def decompress(str, decoderRing):
+   
+    size = sys.getsizeof(0)
+    count=0
+    index=0
+
+    result=""
+    lookat = str[index]
+
+    for x in range(size):
+
+        if ((lookat & 1)==0):
+            result="0"+result 
+        else:
+            result="1"+result
+        lookat=(lookat>>1)
+        count+=1
+        if(count==size):
+            index+=1
+            count=0  
+    print(result)
+
+
+    return decode(encoded,decoderRing)
+    
+
+def unpack_huffman_list(hList,currentCode=''):
+    # If hList is not a tuple, then we unpacked too far. Return without action
+    if not isinstance(hList,tuple):
+        return
+    # If both items in tuple are not tuples themselves, then use the
+    # current code for the second indexed item
+    if not isinstance(hList[0],tuple) and not isinstance(hList[1],tuple):
+        encodedDict[currentCode] = hList[1]
+        letterDict[hList[1]] = currentCode
+        return
+    # Left
+    unpack_huffman_list(hList[0],currentCode + '0' )
+    # Right
+    unpack_huffman_list(hList[1],currentCode + '1' )
+
+def usage():
+    sys.stderr.write("Usage: {} [-c|-d|-v|-w] infile outfile\n".format(sys.argv[0]))
+    exit(1)
+
+if __name__=='__main__':
+    if len(sys.argv) != 4:
+        usage()
+    opt = sys.argv[1]
+    compressing = False
+    decompressing = False
+    encoding = False
+    decoding = False
+    if opt == "-c":
+        compressing = True
+    elif opt == "-d":
+        decompressing = True
+    elif opt == "-v":
+        encoding = True
+    elif opt == "-w":
+        decoding = True
+    else:
+        usage()
+
+    infile = sys.argv[2]
+    outfile = sys.argv[3]
+    assert os.path.exists(infile)
+
+    if compressing or encoding:
+        fp = open(infile, 'rb')
+        str = fp.read()
+        fp.close()
+        if compressing:
+            msg, tree = compress(str)
+            fcompressed = open(outfile, 'wb')
+            marshal.dump((pickle.dumps(tree), msg), fcompressed)
+            fcompressed.close()
+        else:
+            msg, tree = code(str)
+            print(msg)
+            fcompressed = open(outfile, 'wb')
+            marshal.dump((pickle.dumps(tree), msg), fcompressed)
+            fcompressed.close()
+    else:
+        fp = open(infile, 'rb')
+        pickled_tree, msg = marshal.load(fp)
+        tree = pickle.loads(pickled_tree)
+        fp.close()
+        if decompressing:
+            str = decompress(msg, tree)
+        else:
+            str = decode(msg, tree)
+            print(str)
+        fp = open(outfile, 'wb')
+        fp.write(str)
+        fp.close()
